@@ -14,44 +14,50 @@ import cascading.tuple.Tuple;
  */
 public class BasicSchemaManipulation {
 
-	/**
-	 * We want to replicate results of the plain copy (see level 0) but you are
-	 * out of luck. The provided source has also a spam "discardme" field. Use
-	 * {@link Discard} in order to get rid of it.
-	 * 
-	 * source field(s) : "discardme","line"
-	 * sink field(s) : "line"
-	 * 
-	 * The result file has the names of the fields in the first line.
-	 * 
-	 * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s03.html
-	 */
-	public static FlowDef discardField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
-		return null;
-	}
-	
-	/**
-	 * Same logic but we want to {@link Retain} only the "line" field.
-	 * 
-	 * input field(s) : "donotretainme", "line"
-	 * output field(s) : "line"
-	 * 
-	 * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s05.html
-	 */
-	public static FlowDef retainField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
-		return null;
-	}
-	
-	/**
-	 * Bad luck again, the field is badly named "renameme", {@link Rename} it into "line".
-	 * 
-	 * source field(s) : "renameme"
-	 * sink field(s) : "line"
-	 * 
-	 * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s04.html
-	 */
-	public static FlowDef renameField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
-		return null;
-	}
+  /**
+   * We want to replicate results of the plain copy (see level 0) but you are
+   * out of luck. The provided source has also a spam "discardme" field. Use
+   * {@link Discard} in order to get rid of it.
+   * 
+   * source field(s) : "discardme","line"
+   * sink field(s) : "line"
+   * 
+   * The result file has the names of the fields in the first line.
+   * 
+   * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s03.html
+   */
+  public static FlowDef discardField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
+    Pipe pipe = new Pipe("discardField");
+    pipe = new Discard(pipe, new Fields("discardme"));
+    return FlowDef.flowDef().addSource(pipe, source).addTailSink(pipe, sink);
+  }
+
+  /**
+   * Same logic but we want to {@link Retain} only the "line" field.
+   * 
+   * input field(s) : "donotretainme", "line"
+   * output field(s) : "line"
+   * 
+   * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s05.html
+   */
+  public static FlowDef retainField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
+    Pipe pipe = new Pipe("retainField");
+    pipe = new Retain(pipe, new Fields("line"));
+    return FlowDef.flowDef().addSource(pipe, source).addTailSink(pipe, sink);
+  }
+
+  /**
+   * Bad luck again, the field is badly named "renameme", {@link Rename} it into "line".
+   * 
+   * source field(s) : "renameme"
+   * sink field(s) : "line"
+   * 
+   * @see http://docs.cascading.org/cascading/2.1/userguide/html/ch09s04.html
+   */
+  public static FlowDef renameField(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
+    Pipe pipe = new Pipe("renameField");
+    pipe = new Rename(pipe, new Fields("renameme"), new Fields("line"));
+    return FlowDef.flowDef().addSource(pipe, source).addTailSink(pipe, sink);
+  }
 
 }

@@ -1,46 +1,20 @@
 package fr.xebia.cascading.learn.level5;
 
 import cascading.flow.FlowDef;
-import cascading.flow.FlowProcess;
-import cascading.operation.BaseOperation;
-import cascading.operation.Function;
-import cascading.operation.FunctionCall;
+import cascading.operation.Debug;
+import cascading.operation.DebugLevel;
 import cascading.operation.aggregator.First;
 import cascading.operation.aggregator.Max;
-import cascading.pipe.Each;
-import cascading.pipe.HashJoin;
-import cascading.pipe.Pipe;
-import cascading.pipe.assembly.CountBy;
+import cascading.operation.expression.ExpressionFilter;
+import cascading.pipe.*;
+import cascading.pipe.assembly.*;
 import cascading.tap.Tap;
 import cascading.tuple.Fields;
-import cascading.tuple.Tuple;
 
 /**
  * You now know all the basics operators. Here you will have to compose them by yourself.
  */
 public class FreestyleJobs {
-  public static class SplitLineFunction<Context> extends BaseOperation<Context>
-      implements Function<Context> {
-    private static final long serialVersionUID = 1L;
-
-    public SplitLineFunction(Fields wordField) {
-      super(1, wordField);
-    }
-
-    @Override
-    public void operate(@SuppressWarnings("rawtypes") FlowProcess flowProcess,
-        FunctionCall<Context> functionCall) {
-      String line = functionCall.getArguments().getString(0);
-      String[] words = line.toLowerCase().split("[\\s,\\.'\\d\\[\\]\\(\\)/]+");
-      for (String word : words) {
-        if ("v".equalsIgnoreCase(word)) {
-          continue;
-        }
-        functionCall.getOutputCollector().add(new Tuple(word));
-      }
-    }
-  }
-
   /**
    * Word count is the Hadoop "Hello world" so it should be the first step.
    * 
@@ -66,7 +40,7 @@ public class FreestyleJobs {
    * Now, let's try a non trivial job : td-idf. Assume that each line is a
    * document.
    * 
-   * source field(s) : "line"
+   * source field(s) : "id", "content"
    * sink field(s) : "docId","tfidf","word"
    * 
    * <pre>
@@ -101,7 +75,82 @@ public class FreestyleJobs {
    * PPS : You can remove results where tfidf < 0.1
    */
   public static FlowDef computeTfIdf(Tap<?, ?, ?> source, Tap<?, ?, ?> sink) {
-    return null;
-  }
+    Pipe mainPipe = new Pipe("mainPipe");
 
+    // sizeDPipe
+    Pipe sizeDPipe = new Pipe("sizeDPipe", mainPipe);
+    sizeDPipe = new Each(sizeDPipe, new Fields("id"), new DocSeqCreator(
+        new Fields("seqNum")), Fields.ALL);
+    sizeDPipe = new Discard(sizeDPipe, new Fields("content"));
+    sizeDPipe = new GroupBy(sizeDPipe, new Fields("id"), new Fields("seqNum"),
+        true);
+    sizeDPipe = new Each(sizeDPipe, new Fields("seqNum"), new DocSizeDetector(
+        new Fields("sizeD")), new Fields("id", "sizeD"));
+    sizeDPipe = new Rename(sizeDPipe, new Fields("id"), new Fields("docId"));
+    sizeDPipe = new Each(sizeDPipe, DebugLevel.VERBOSE, new Debug());
+
+    // wordPipe
+    Pipe wordPipe = new Pipe("wordPipe", mainPipe);
+    wordPipe = new Each(wordPipe, new SplitDocumentFunction(new Fields("docId",
+        "word")), Fields.RESULTS);
+
+    // sizeDtPipe
+    Pipe sizeDtPipe = new Pipe("sizeDtPipe", wordPipe);
+    sizeDtPipe = new Unique(sizeDtPipe, new Fields("docId", "word"));
+    sizeDtPipe = new CountBy(sizeDtPipe, new Fields("word"), new Fields(
+        "sizeDt"));
+
+    // freqPipe
+    Pipe freqPipe = new Pipe("freqPipe", wordPipe);
+    freqPipe = new CountBy(freqPipe, new Fields("docId", "word"), new Fields(
+        "freq"));
+
+    // maxFreqPipe
+    Pipe maxFreqPipe = new Pipe("maxFreqPipe", freqPipe);
+    maxFreqPipe = new GroupBy(maxFreqPipe, new Fields("docId"));
+    maxFreqPipe = new Every(maxFreqPipe, new Fields("freq"), new Max(
+        new Fields("maxFreq")), Fields.ALL);
+
+    // mainPipe
+    mainPipe = new CoGroup(freqPipe, new Fields("docId"), maxFreqPipe,
+        new Fields("docId"), new Fields("docId1", "word", "freq", "docId2",
+            "maxFreq"));
+    mainPipe = new Discard(mainPipe, new Fields("docId2"));
+    mainPipe = new Rename(mainPipe, new Fields("docId1"), new Fields("docId"));
+
+    // tf(t,d) = f(t,d) / max (f(t',d))
+    mainPipe = new Each(mainPipe, new Fields("freq", "maxFreq"),
+        new TFCalculator(new Fields("tf")), Fields.ALL);
+
+    // Merge sizeD to main pipe
+    mainPipe = new CoGroup(mainPipe, new Fields("docId"), sizeDPipe,
+        new Fields("docId"), new Fields("word", "freq", "maxFreq", "docId1",
+            "tf", "sizeD", "docId2"));
+    mainPipe = new Discard(mainPipe, new Fields("docId2"));
+    mainPipe = new Rename(mainPipe, new Fields("docId1"), new Fields("docId"));
+
+    // Merge sizeDt to main pipe
+    mainPipe = new CoGroup(mainPipe, new Fields("word"), sizeDtPipe,
+        new Fields("word"), new Fields("word1", "freq", "maxFreq", "tf",
+            "sizeD", "docId", "word2", "sizeDt"));
+    mainPipe = new Discard(mainPipe, new Fields("word2"));
+    mainPipe = new Rename(mainPipe, new Fields("word1"), new Fields("word"));
+
+    // idf(t, D) = log( size(D) / size(Dt) )
+    mainPipe = new Each(mainPipe, new Fields("sizeD", "sizeDt"),
+        new IDFCalculator(new Fields("idf")), Fields.ALL);
+
+    // Calculate tfidf
+    mainPipe = new Each(mainPipe, new Fields("tf", "idf"), new TFIDFCalculator(
+        new Fields("tfidf")), Fields.ALL);
+    mainPipe = new Retain(mainPipe, new Fields("docId", "tfidf", "word"));
+
+    ExpressionFilter filter = new ExpressionFilter("tfidf < 0.1", Double.class);
+    mainPipe = new Each(mainPipe, new Fields("tfidf"), filter);
+    mainPipe = new GroupBy(mainPipe, new Fields("docId"), new Fields("docId",
+        "tfidf", "word"), true);
+
+    return FlowDef.flowDef().addSource(mainPipe, source)
+        .addTailSink(mainPipe, sink).setDebugLevel(DebugLevel.VERBOSE);
+  }
 }

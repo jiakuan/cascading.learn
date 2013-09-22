@@ -4,7 +4,7 @@ docId	tfidf	word
 4#mapreduce	0.12383651485236138	work
 4#mapreduce	0.12383651485236138	tasktracker
 4#mapreduce	0.12383651485236138	jobtracker
-3#filesytem	0.2349463415061936	namenode
+3#filesytem	0.21145170735557425	namenode
 3#filesytem	0.20633819390180771	over
 3#filesytem	0.20633819390180771	not
 3#filesytem	0.16507055512144617	primary
